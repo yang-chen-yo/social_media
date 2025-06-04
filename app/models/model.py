@@ -1,9 +1,10 @@
+# models/model.py
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
 class BaseModel(db.Model):
-    __abstract__ = True  # 不建立這個 base 類別為資料表
+    __abstract__ = True
     id = db.Column(db.Integer, primary_key=True)
 
     def save(self):
@@ -14,6 +15,5 @@ class BaseModel(db.Model):
         db.session.delete(self)
         db.session.commit()
 
-def init_db():
-    from models.user import User  # 確保所有 model 都被載入再 create_all
-    db.create_all()
+    def to_dict(self):
+        return {col.name: getattr(self, col.name) for col in self.__table__.columns}
