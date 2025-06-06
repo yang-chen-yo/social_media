@@ -2,7 +2,10 @@
 from flask import jsonify, request
 
 class BaseController:
-    def success_response(self, data=None, message="Success", code=200):
+    def success_response(self, *args, data=None, message="Success", code=200):
+        if args:
+            message = args[0]  # 允許傳 "Success" 當成位置參數
+
         return jsonify({
             "status": "success",
             "message": message,
