@@ -17,6 +17,6 @@ def record_view(request, post_id=None):
     if not post_id:
         return base.error_response("post_id is required", 400)
 
-    Action.record(user_id, post_id, 'view', deduplicate=True)
+    Action.record(user_id, post_id, 'view', deduplicate=True, interval_minutes=10)
     return base.success_response("View recorded")
 

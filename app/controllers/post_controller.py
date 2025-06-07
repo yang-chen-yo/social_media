@@ -26,15 +26,10 @@ def get_feed(request):
     if not user_id:
         return base.error_response("Login required", 401)
 
-    followee_ids = Follow.get_followee_ids(user_id)
+    # 取得使用者自己發的貼文
+    posts = Post.query.filter_by(user_id=user_id).order_by(Post.created_at.desc()).all()
 
-    # 過濾掉被封鎖 or 封鎖使用者
-    filtered_ids = [
-        uid for uid in followee_ids if not is_blocked(user_id, uid)
-    ]
-    posts = Post.get_by_user_ids(filtered_ids)
-
-    return base.success_response([p.to_dict() for p in posts], "Followed users' posts loaded")
+    return base.success_response([p.to_dict() for p in posts], "Your posts loaded")
 
 def create_post(request):
     user_id = session.get('user_id')
@@ -86,8 +81,8 @@ def delete_post(request, post_id):
     if post.user_id != user_id:
         return base.error_response("Permission denied", 403)
 
-    post.delete()
-    return base.success_response(message="Post deleted")
+    post.soft_delete()  # ✅ 改這裡
+    return base.success_response(message="Post hidden (soft deleted)")
 
 # Admin 下架貼文
 def admin_hide_post(request, post_id):
@@ -96,7 +91,7 @@ def admin_hide_post(request, post_id):
         return base.error_response("Login required", 401)
 
     user = User.query.get(user_id)
-    if not user or user.role_id != 1:
+    if not user or not user.has_role('admin'):
         return base.error_response("Admin access only", 403)
 
     post = Post.get_by_id(post_id)
@@ -106,6 +101,22 @@ def admin_hide_post(request, post_id):
     post.is_hidden = True
     post.save()
     return base.success_response(message="Post hidden by admin")
+
+# moderator 下架貼文
+def moderator_hide_post(request, post_id):
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+
+    if not user or not user.has_any_role('moderator', 'admin'):
+        return base.error_response("Moderator or Admin access only", 403)
+
+    post = Post.get_by_id(post_id)
+    if not post:
+        return base.error_response("Post not found", 404)
+
+    post.is_hidden = True
+    post.save()
+    return base.success_response(message="Post hidden by moderator or admin")
 
 def like_post(request, post_id):
     user_id = session.get('user_id')

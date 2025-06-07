@@ -7,7 +7,7 @@ class User(BaseModel):
     username = db.Column(db.String(50), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    role_id = db.Column(db.Integer, nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=False)
     
     blocking = db.relationship(
         'Block',
@@ -46,3 +46,9 @@ class User(BaseModel):
     @classmethod
     def get_by_email(cls, email):
         return cls.query.filter_by(email=email).first()
+    
+    def has_role(self, role_name: str) -> bool:
+        return self.role and self.role.role_name == role_name
+
+    def has_any_role(self, *role_names) -> bool:
+        return self.role and self.role.role_name in role_names

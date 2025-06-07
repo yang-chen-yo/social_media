@@ -134,3 +134,7 @@ class Post(BaseModel):
 
         post_map = {post.id: post for post in Post.query.filter(Post.id.in_(sorted_ids)).all()}
         return [post_map[pid] for pid in sorted_ids if pid in post_map]
+
+def soft_delete(self):
+    self.is_hidden = True
+    db.session.commit()

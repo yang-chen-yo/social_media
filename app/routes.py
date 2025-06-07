@@ -1,3 +1,4 @@
+#routes.py
 import importlib
 from flask import request, session
 from app.controllers.controller import BaseController
@@ -9,13 +10,17 @@ base = BaseController()
 ROUTE_MAP = {
     'noRestriction': {
         'page/login': ('page_controller', 'view_login_page'),
+        'page/register': ('page_controller', 'view_register_page'),
+        
         'auth/login': ('auth_controller', 'login'),
         'auth/logout': ('auth_controller', 'logout'),
         'auth/register': ('auth_controller', 'register')
     },
     'hasLogin': {
+        'page/posts': ('page_controller', 'view_posts_page'),
+        
         'posts/feed': ('post_controller', 'get_feed'),
-        'posts': ('post_controller', 'create_post'),             
+        'posts/new': ('post_controller', 'create_post'),             
         'posts/update': ('post_controller', 'update_post'),       
         'posts/delete': ('post_controller', 'delete_post'),
         
@@ -23,6 +28,10 @@ ROUTE_MAP = {
         'users/unfollow': ('user_controller', 'unfollow_user'),
         'users/block': ('user_controller', 'block_user'),
         'users/unblock': ('user_controller', 'unblock_user'),
+        'users/meInfo': ('user_controller', 'get_user_info'),
+        
+        'users/following': ('user_controller', 'get_following_list'),
+        'users/follow-stats': ('user_controller', 'get_follow_stats'),
         
         'posts/like': ('post_controller', 'like_post'),
         'posts/dislike': ('post_controller', 'dislike_post'),   
@@ -34,8 +43,15 @@ ROUTE_MAP = {
         
         'actions/view': ('action_controller', 'record_view')
     },
+    
+    'moderatorOnly': {
+        'posts/hide': ('post_controller', 'moderator_hide_post')
+    },
     'adminOnly': {
-        'admin/posts/hide': ('post_controller', 'admin_hide_Apost')  
+        'admin/posts/hide': ('post_controller', 'admin_hide_post'),
+        'admin/users/ban': ('admin_controller', 'ban_user'),
+        'admin/users/unban': ('admin_controller', 'unban_user'),
+        'admin/users/set-role': ('admin_controller', 'set_user_role')
     }
 }
 

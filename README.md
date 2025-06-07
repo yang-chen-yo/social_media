@@ -46,54 +46,37 @@ sHrf4x)Rp4MqPF7T
 🧠 增強式學習思想（Reinforcement Learning Intuition）
 推薦系統等價於一個「多臂機器賭博機（Multi-Armed Bandit）」問題：
 
-每個貼文是一個「賭博機器」
+略的 4 大構成（對應 RL 架構）
+元件	你系統中的實作
+🟦 狀態 (state)	使用者的近期互動紀錄組成狀態向量：top_tags, last_active
+🟩 行動 (action)	推薦一篇貼文（post_id）作為推薦決策
+🟨 獎勵 (reward)	使用者對該貼文的實際行為：view(+0.1)、like(+1.0)...等
+🟥 策略 (policy)	combined_score() 分數函數 → 排序後推薦 top-k 貼文
 
-使用者互動行為（點讚、留言等）回傳「獎勵（reward）」
+ 演算法核心：TagAwareBandit
+一種模仿多臂賭博機（Multi-Armed Bandit）策略的簡化推薦方法：
+🔁 你的推薦策略的工作流程（策略學習角度）
+獲得狀態：
+從 Action 表中讀取使用者最近互動，提取 top_tags 當作偏好狀態
 
-系統透過這些獎勵學習哪些貼文更值得推薦
+決策（策略）：
+根據 combined_score() 函式，計算每篇貼文的分數：
 
-🎁Reward 設計
-使用者與貼文的互動會轉化為對該貼文的「reward」值，對所有貼文與 tag 累積。
+互動 reward（like/comment/share/view）
 
-行為	Reward 值
-view (瀏覽)	0.1
-like (按讚)	1.0
-comment (留言)	1.5
-share (分享)	2.0
+個人化 tag reward（user_tag_rewards）
 
-📌 加分機制說明：追蹤與留言互動
-在貼文分數的計算中，若該貼文屬於下列情況之一，會額外 +0.5 分獎勵：
+狀態命中加分（偏好 tag 命中）
 
-該貼文由使用者「追蹤」的對象所發布
+曾看過的貼文分數打折
 
-該貼文曾經被使用者「追蹤者」留言互動過
+採樣行動（推薦貼文）：
+回傳排序前 k 篇貼文 → 顯示給使用者
 
-🧾State 表徵（狀態設計）
-這裡狀態特徵概念：
+等待回饋（獎勵）：
+使用者是否對推薦內容有互動（like/view/share 等）→ 儲存在 actions 表
 
-每篇貼文的歷史 reward
-
-每個 tag 的平均 reward
-
-使用者追蹤者、留言過的貼文（作為優先推薦因子）
-
-
-🔀 Epsilon-Greedy 策略
-推薦邏輯採用 ε-greedy 策略：
-
-機率 ε（例如 10%）進行探索：隨機推薦
-
-否則執行 exploitation：根據 reward 計算分數推薦最高分的貼文
-
-🔍 推薦流程
-排除使用者封鎖的對象 & 自己的貼文
-
-準備所有候選貼文與其 tag
-
-分類「追蹤者貼文」「留言過貼文」為優先推薦對象（加分）
-
-若進行 exploitation，計算所有候選貼文的分數並排序取前 k 筆
-
-回傳推薦結果
+系統更新策略：
+在下一次 update() 時會重新計算貼文 / 標籤的 reward 分數 → 策略即時更新
 
 前端滑動到貼文區塊時打 API 至少停留 N 秒才算 view

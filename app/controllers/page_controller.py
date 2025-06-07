@@ -9,3 +9,9 @@ base = BaseController()
 
 def view_login_page(request):
     return render_template('login.html')
+
+def view_register_page(request):
+    return render_template('register.html')
+
+def view_posts_page(request):
+    return render_template('posts.html')
