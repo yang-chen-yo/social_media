@@ -48,3 +48,14 @@ class Like(BaseModel):
         )
         db.session.commit()
         return f"{action_type} switched"
+    
+    @classmethod
+    def get_liked_post_ids(cls, user_id):
+        result = db.session.execute(
+            text("""
+                SELECT post_id FROM likes
+                WHERE user_id = :uid AND action_type = 'like'
+            """),
+            {"uid": user_id}
+        )
+        return [row[0] for row in result]

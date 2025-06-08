@@ -61,3 +61,13 @@ def set_user_role(request):
     user.role_id = role_id
     db.session.commit()
     return base.success_response(message=f"User {user.username} role set to {role_id}")
+
+def get_all_users(request):
+    if not is_admin():
+        return base.error_response("Admin only", 403)
+
+    current_uid = session.get('user_id')
+    users = User.query.filter(User.id != current_uid).all()
+    result = [u.to_safe_dict() for u in users]
+
+    return base.success_response(result, "All users (excluding self)")

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <title>Post Feed - Social Media</title>
+  <title>Social Media</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
@@ -30,8 +30,10 @@
     .reply-link { font-size:0.75rem; color:#4338ca; cursor:pointer; }
     .author-info { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; }
     .author-left { display:flex; align-items:center; gap:0.75rem; }
-    .follow-btn { padding:0.25rem 0.75rem; border:1px solid #4338ca; color:#4338ca; border-radius:0.375rem; font-size:0.875rem; cursor:pointer; }
-    .follow-btn:hover { background:#f3f4ff; }
+    .follow-btn {display: inline-flex;align-items: center;gap: 0.4rem;padding: 0.25rem 0.75rem;border: 1px solid #4338ca;color: #4338ca;background-color: transparent;border-radius: 0.375rem;font-size: 0.875rem;font-weight: 500;cursor: pointer;transition: background-color 0.2s, color 0.2s;}
+    .follow-btn:hover {background-color: #eef2ff;}
+    .follow-btn.following {background-color: #4338ca;color: white;border-color: #4338ca;}
+    .follow-btn.following:hover {background-color: #3730a3;}
     .user-dropdown { position:absolute; right:0; top:100%; margin-top:0.5rem; background:#fff; border:1px solid #e5e7eb; border-radius:0.5rem; box-shadow:0 4px 12px rgba(0,0,0,0.1); display:none; min-width:160px; z-index:10; }
     .user-dropdown.show { display:block; }
     .user-dropdown a { display:block; padding:0.5rem 1rem; color:#374151; text-decoration:none; }
@@ -56,7 +58,7 @@
 <body>
   <div class="min-h-screen px-6 py-8 max-w-3xl mx-auto">
     <header class="flex justify-between items-center mb-6 relative">
-      <h1 class="text-2xl font-bold text-gray-800">Post Feed</h1>
+      <h1 class="text-2xl font-bold text-gray-800">Social Media</h1>
       <div class="flex items-center gap-4">
         <button id="new-post-btn" class="rounded-full bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">New Post</button>
         <div class="user-menu relative">
@@ -89,7 +91,14 @@
       </div>
       <div class="new-post-footer">
         <label class="img-upload-label" for="new-post-image"><i class="bi bi-image"></i></label>
-        <input type="file" id="new-post-image" class="img-upload-input" accept="image/*" />
+        <input
+            type="file"
+            id="new-post-image"
+            name="images"           
+            accept="image/*"
+            multiple             
+            class="img-upload-input"
+            />
         <button id="publish-post" class="publish-btn">Publish</button>
       </div>
     </div>
@@ -99,6 +108,40 @@
     let replyTo = null;
     let currentTab = 'recommend';
     let followingList = [];
+    let editingPostId = null;
+    let likedPostIds = [];
+
+    let meRole = null;   // ← 加這行
+
+  // 1️⃣ 載入使用者資訊
+  async function loadMeInfo() {
+    try {
+      const res = await fetch('/api/users/meInfo');
+      const { message } = await res.json();
+      meRole = message.role;
+      if (meRole === 'admin') {
+        const dropdown = document.getElementById('user-dropdown');
+        const adminLink = document.createElement('a');
+        adminLink.href = '/api/page/users';           // 改成你真正的管理頁面路徑
+        adminLink.textContent = 'Account Management';
+        adminLink.className = 'text-sm';
+        dropdown.insertBefore(adminLink, dropdown.firstChild);
+      }
+    } catch (e) {
+      console.error('Failed to load user info:', e);
+    }
+  }
+
+    async function loadLikedPosts() {
+    try {
+        const res = await fetch('/api/posts/liked');
+        const { message } = await res.json();
+        likedPostIds = message.liked_post_ids || [];
+    } catch (e) {
+        console.error('Failed to load liked posts:', e);
+    }
+    }
+    
     const colors = ['#F87171', '#34D399', '#60A5FA', '#FBBF24'];
   
     async function loadFollowing() {
@@ -125,13 +168,15 @@
     const previewName = document.getElementById('img-preview-name');
     const previewRemove = document.getElementById('img-preview-remove');
     fileInput.onchange = function () {
-      const f = this.files[0];
-      if (f) {
-        previewImg.src = URL.createObjectURL(f);
-        previewName.textContent = f.name;
-        previewContainer.style.display = 'flex';
-      }
-    };
+        previewContainer.innerHTML = '';              // 清空
+        for (const f of this.files) {
+          const img = document.createElement('img');
+          img.src = URL.createObjectURL(f);
+          img.className = 'w-16 h-16 object-cover rounded';
+          previewContainer.appendChild(img);
+        }
+        if (this.files.length) previewContainer.style.display = 'flex';
+      };
     previewRemove.onclick = () => {
       fileInput.value = '';
       previewContainer.style.display = 'none';
@@ -158,18 +203,35 @@
   
     // Publish
     document.getElementById('publish-post').onclick = async () => {
-      const content = document.getElementById('new-post-text').value.trim();
-      const f = fileInput.files[0];
-      const fd = new FormData(); fd.append('content', content); if (f) fd.append('image', f);
-      const res = await fetch('/api/posts/new', { method: 'POST', body: fd });
-      if (res.ok) {
+        const content = document.getElementById('new-post-text').value.trim();
+        const fd = new FormData();
+        fd.append('content', content);
+        // 把所有挑選到的檔案都放到 images 這個 key 裡
+        for (const img of fileInput.files) {
+        fd.append('images', img);
+        }
+      
+        if (editingPostId) {
+          // 更新貼文
+          const res = await fetch(`/api/posts/update/${editingPostId}`, {
+            method: 'POST',
+            body: fd
+          });
+        } else {
+          // 新增貼文
+          const res = await fetch('/api/posts/new', {
+            method: 'POST',
+            body: fd
+          });
+        }
+      
         modal.style.display = 'none';
         document.getElementById('new-post-text').value = '';
         fileInput.value = '';
         previewContainer.style.display = 'none';
+        editingPostId = null;
         fetchPosts();
-      }
-    };
+      };
   
     async function fetchPosts() {
       const c = document.getElementById('posts-container'); c.innerHTML = '';
@@ -187,37 +249,100 @@
   
         let controlBtnHtml = '';
         if (currentTab === 'recommend') {
-          const isFollowing = followingList.includes(p.user_id);
-          controlBtnHtml = `<button class="follow-btn ${isFollowing ? 'following' : ''}" data-id="${p.user_id}">${isFollowing ? 'Following' : 'Follow'}</button>`;
-        } else {
-          controlBtnHtml = `<div class="flex gap-2">
-              <button class="btn btn-sm btn-outline-secondary update-post" data-id="${p.id}">Update</button>
-              <button class="btn btn-sm btn-outline-danger delete-post" data-id="${p.id}">Delete</button>
-            </div>`;
+            // 推薦貼文裡顯示 Follow/Following
+            const isFollowing = followingList.includes(p.user_id);
+            controlBtnHtml = `
+              <button class="follow-btn ${isFollowing ? 'following' : ''}" data-id="${p.user_id}">
+                <i class="bi ${isFollowing ? 'bi-check2-circle' : 'bi-person-plus-fill'}"></i>${isFollowing ? 'Following' : 'Follow'}
+              </button>
+            `;
+          } else {
+            // 我的貼文裡顯示 Update/Delete
+            controlBtnHtml = `
+              <div class="flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary update-post" data-id="${p.id}">Update</button>
+                <button class="btn btn-sm btn-outline-danger delete-post" data-id="${p.id}">Delete</button>
+              </div>
+            `;
+          }
+        // ← 這裡你只有在「我的貼文」裡才加 Hide
+        if (meRole === 'moderator') {
+            controlBtnHtml += ` 
+            <button class="btn btn-outline-secondary btn-sm hide-post ms-2" data-id="${p.id}" title="Hide this post" style="width:32px;height:32px;padding:0;">
+                <i class="bi bi-x-lg"></i>
+              </button>
+              `;
         }
-  
         card.innerHTML = `<div class="p-4">
-          <div class="author-info">
-            <div class="author-left">
-              <div class="author-avatar-icon" style="background:${color}"><i class="bi bi-person-fill"></i></div>
-              <div><p class="font-semibold text-gray-800">User ${p.user_id}</p><p class="text-xs text-gray-500">${time}</p></div>
-            </div>${controlBtnHtml}
-          </div>${car}
-          <p class="my-4 text-gray-800">${p.content}</p>
-          <div class="flex items-center gap-4 mb-4 text-gray-600">
-            <span class="icon-btn like-btn" data-id="${p.id}"><i class="bi bi-heart"></i> Like</span>
-            <span class="icon-btn comment-btn" data-id="${p.id}"><i class="bi bi-chat"></i> Comment</span>
-            <span class="ml-auto icon-btn"><i class="bi bi-eye"></i> 0 views</span>
-          </div>
-          <div class="comment-section hidden" id="comments-${p.id}">
-            <div class="comment-list"></div>
-            <div class="comment-input-wrapper">
-              <input type="text" class="comment-input" placeholder="Write a comment..."/>
-              <button class="btn btn-indigo comment-submit" data-id="${p.id}">Post</button>
+            <div class="author-info">
+              <div class="author-left">
+                <div class="author-avatar-icon" style="background:${color}"><i class="bi bi-person-fill"></i></div>
+                <div>
+                  <p class="font-semibold text-gray-800">User ${p.user_id}</p>
+                  <p class="text-xs text-gray-500">${time}</p>
+                </div>
+              </div>
+              ${controlBtnHtml}
             </div>
-          </div>
-        </div>`;
+            ${car}
+            <p class="my-4 text-gray-800">${p.content}</p>
+          
+            <!-- 這裡開始：動態顯示 like/comment/view 統計 -->
+            <div class="flex items-center gap-4 mb-4 text-gray-600">
+              <span class="icon-btn like-btn" data-id="${p.id}"><i class="bi bi-heart"></i> 0</span>
+              <span class="icon-btn comment-btn" data-id="${p.id}"><i class="bi bi-chat"></i> 0</span>
+              <span class="ml-auto icon-btn view-count"><i class="bi bi-eye"></i> 0</span>
+            </div>
+            <!-- 這裡結束 -->
+          
+            <div class="comment-section hidden" id="comments-${p.id}">
+              <div class="comment-list"></div>
+              <div class="comment-input-wrapper">
+                <input type="text" class="comment-input" placeholder="Write a comment..."/>
+                <button class="btn btn-indigo comment-submit" data-id="${p.id}">Post</button>
+              </div>
+            </div>
+          </div>`;
+    
         c.appendChild(card);
+        if (meRole === 'moderator') {
+            const hideBtn = card.querySelector('.hide-post');
+            hideBtn?.addEventListener('click', async () => {
+              if (!confirm('確定要下架這篇貼文嗎？')) return;
+              try {
+                const res = await fetch(`/api/posts/hide/${p.id}`, { method: 'POST' });
+                if (res.ok) {
+                  fetchPosts();
+                } else {
+                  alert('下架失敗');
+                }
+              } catch (err) {
+                console.error('Hide API error:', err);
+                alert('下架時發生錯誤');
+              }
+            });
+          }
+          
+        if (likedPostIds.includes(p.id)) {
+            const likeBtn = card.querySelector(`.like-btn[data-id="${p.id}"]`);
+            likeBtn.classList.add('liked');
+            const ic = likeBtn.querySelector('i');
+            ic.classList.replace('bi-heart', 'bi-heart-fill');
+          }
+
+        fetch(`/api/posts/stats/${p.id}`)
+        .then(res => res.json())
+        .then(({ message: stats }) => {
+            const likeBtn = card.querySelector(`.like-btn[data-id="${p.id}"]`);
+            const isLiked = likedPostIds.includes(p.id);
+            likeBtn.innerHTML = `<i class="bi ${isLiked ? 'bi-heart-fill' : 'bi-heart'}"></i> ${stats.like_count}`;
+            if (isLiked) likeBtn.classList.add('liked');
+            card.querySelector(`.comment-btn[data-id="${p.id}"]`)
+                .innerHTML = `<i class="bi bi-chat"></i> ${stats.comment_count}`;
+            card.querySelector(`.view-count`)
+                .innerHTML = `<i class="bi bi-eye"></i> ${stats.view_count} views`;
+        })
+        .catch(err => console.error('Stats API error:', err));
       });
       bindEvents();
       if (currentTab === 'recommend') setupHoverViewTracking();
@@ -280,17 +405,76 @@
           if (btn.classList.contains('following')) {
             await fetch(`/api/users/unfollow/${uid}`, { method: 'POST' });
             btn.classList.remove('following');
-            btn.textContent = 'Follow';
+            btn.innerHTML = '<i class="bi bi-person-plus-fill"></i>Follow';
           } else {
             await fetch(`/api/users/follow/${uid}`, { method: 'POST' });
             btn.classList.add('following');
-            btn.textContent = 'Following';
+            btn.innerHTML = '<i class="bi bi-check2-circle"></i>Following';
           }
         };
       });
   
       document.querySelectorAll('.update-post').forEach(btn => {
-        btn.onclick = () => alert(`Update post ${btn.dataset.id} 功能尚未實作`);
+        btn.onclick = async () => {
+          const pid = btn.dataset.id;
+          editingPostId = pid;
+      
+          try {
+            const res = await fetch(`/api/posts/detail/${pid}`);
+            if (!res.ok) throw new Error(`Failed to fetch post ${pid}`);
+            const data = await res.json();
+            const post = data.post || data.message || data;
+      
+            document.getElementById('new-post-text').value = post.content || '';
+      
+            if (post.images && post.images.length > 0) {
+                previewContainer.innerHTML = ''; // 清空原本的預覽容器
+              
+                post.images.forEach((imgPath, index) => {
+                  const wrapper = document.createElement('div');
+                  wrapper.style.display = 'flex';
+                  wrapper.style.alignItems = 'center';
+                  wrapper.style.gap = '0.5rem';
+              
+                  const img = document.createElement('img');
+                  img.src = imgPath;
+                  img.style.width = '60px';
+                  img.style.height = '60px';
+                  img.style.objectFit = 'cover';
+                  img.style.borderRadius = '0.5rem';
+              
+                  const name = document.createElement('span');
+                  name.className = 'img-preview-name';
+                  name.textContent = imgPath.split('/').pop();
+              
+                  const remove = document.createElement('span');
+                  remove.className = 'img-preview-remove';
+                  remove.innerHTML = '&times;';
+                  remove.style.cursor = 'pointer';
+                  remove.onclick = () => wrapper.remove(); // 刪除這個圖片預覽區塊
+              
+                  wrapper.appendChild(img);
+                  wrapper.appendChild(name);
+                  wrapper.appendChild(remove);
+              
+                  previewContainer.appendChild(wrapper);
+                });
+              
+                previewContainer.style.display = 'flex';
+                previewContainer.style.flexDirection = 'column';
+                previewContainer.style.gap = '0.5rem';
+              } else {
+                previewContainer.style.display = 'none';
+              }
+      
+            fileInput.value = '';
+            document.querySelector('.new-post-header span').textContent = 'Edit Post';
+            modal.style.display = 'flex';
+          } catch (err) {
+            console.error('Error loading post for editing:', err);
+            alert('無法載入貼文內容，請稍後再試');
+          }
+        };
       });
   
       document.querySelectorAll('.delete-post').forEach(btn => {
@@ -333,8 +517,10 @@
     }
   
     document.addEventListener('DOMContentLoaded', async () => {
-      await loadFollowing();
-      switchTab('recommend');
+        await loadMeInfo(); 
+        await loadFollowing();
+        await loadLikedPosts();   
+        switchTab('recommend');
     });
   </script>
   

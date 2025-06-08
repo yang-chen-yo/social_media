@@ -15,3 +15,6 @@ def view_register_page(request):
 
 def view_posts_page(request):
     return render_template('posts.html')
+
+def view_users_page(request):
+    return render_template('users.html')

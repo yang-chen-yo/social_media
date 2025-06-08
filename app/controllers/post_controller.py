@@ -14,12 +14,42 @@ from app.models.Action import Action
 
 
 import os
-from flask import session
+from flask import session, request
 
 base = BaseController()
 
+def get_post_stats(request, post_id):
+    post = Post.get_by_id(post_id)
+    if not post or post.is_hidden:
+        return base.error_response("Post not found", 404)
+
+    from sqlalchemy import func
+
+    # 🔢 取得各類數量
+    view_count = Action.query.filter_by(post_id=post_id, action_type='view').count()
+    like_count = Like.query.filter_by(post_id=post_id).count()
+    comment_count = Comment.query.filter_by(post_id=post_id).count()
+
+    return base.success_response({
+        'post_id': post_id,
+        'view_count': view_count,
+        'like_count': like_count,
+        'comment_count': comment_count
+    })
+
 def is_blocked(a_id, b_id):
     return Block.is_blocked(a_id, b_id)
+
+def get_post_by_id(request, post_id):
+    user_id = session.get('user_id')
+    if not user_id:
+        return base.error_response("Login required", 401)
+
+    post = Post.get_by_id(post_id)
+    if not post or post.is_hidden:
+        return base.error_response("Post not found", 404)
+
+    return base.success_response(post.to_dict(), message="Post loaded")
 
 def get_feed(request):
     user_id = session.get('user_id')
@@ -36,19 +66,25 @@ def create_post(request):
     if not user_id:
         return base.error_response("Login required", 401)
 
+    # JSON or form-data?
     if request.content_type.startswith('application/json'):
-        data = base.get_json()
-        content = data.get('content') if data else None
-        images = None
+        data = base.get_json() or {}
+        content = data.get('content')
+        images = []
     else:
         content = request.form.get('content')
-        images = request.files.getlist('images') if request.files else None
+        images = request.files.getlist('images') or []
 
     if not content:
         return base.error_response("Content is required", 400)
 
+    # 確保資料夾
+    upload_folder = os.getenv('UPLOAD_FOLDER', 'static/images/')
+    os.makedirs(upload_folder, exist_ok=True)
+
     post = Post.create_with_images(user_id, content, images)
     return base.success_response(post.to_dict(), "Post created", 201)
+
 
 def update_post(request, post_id):
     user_id = session.get('user_id')
@@ -61,12 +97,23 @@ def update_post(request, post_id):
     if post.user_id != user_id:
         return base.error_response("Permission denied", 403)
 
-    data = base.get_json()
-    content = data.get('content')
-    if not content:
-        return base.error_response("Content is required")
+    if request.content_type.startswith('application/json'):
+        data = base.get_json() or {}
+        content = data.get('content')
+        images = []
+    else:
+        content = request.form.get('content')
+        images = request.files.getlist('images') or []
 
-    post.update_content(content)  # ✅ 負責處理 tags 更新 + commit
+    if not content:
+        return base.error_response("Content is required", 400)
+
+    # 確保資料夾
+    upload_folder = os.getenv('UPLOAD_FOLDER', 'static/images/')
+    os.makedirs(upload_folder, exist_ok=True)
+
+    # 呼叫 model 的 update_with_images
+    post.update_with_images(content, images)
     return base.success_response(post.to_dict(), "Post updated")
 
 # ▶ 刪除貼文（使用者刪自己的）
@@ -216,4 +263,12 @@ def recommend_post(request):
 
     post_dicts = [p.to_dict() for p in posts]
     return base.success_response(post_dicts, "Recommended posts")
+
+def get_my_likes(request):
+    user_id = session.get('user_id')
+    if not user_id:
+        return base.error_response("Login required", 401)
+
+    post_ids = Like.get_liked_post_ids(user_id)
+    return base.success_response({'liked_post_ids': post_ids})
 

@@ -19,6 +19,8 @@ ROUTE_MAP = {
     'hasLogin': {
         'page/posts': ('page_controller', 'view_posts_page'),
         
+        'posts/detail': ('post_controller', 'get_post_by_id'),
+        'posts/stats': ('post_controller', 'get_post_stats'),
         'posts/feed': ('post_controller', 'get_feed'),
         'posts/new': ('post_controller', 'create_post'),             
         'posts/update': ('post_controller', 'update_post'),       
@@ -33,6 +35,7 @@ ROUTE_MAP = {
         'users/following': ('user_controller', 'get_following_list'),
         'users/follow-stats': ('user_controller', 'get_follow_stats'),
         
+        'posts/liked': ('post_controller', 'get_my_likes'),
         'posts/like': ('post_controller', 'like_post'),
         'posts/dislike': ('post_controller', 'dislike_post'),   
         'posts/comment/new': ('post_controller', 'comment_post'), 
@@ -48,7 +51,10 @@ ROUTE_MAP = {
         'posts/hide': ('post_controller', 'moderator_hide_post')
     },
     'adminOnly': {
+        'page/users': ('page_controller', 'view_users_page'),
+        
         'admin/posts/hide': ('post_controller', 'admin_hide_post'),
+        'admin/users/list': ('admin_controller', 'get_all_users'),
         'admin/users/ban': ('admin_controller', 'ban_user'),
         'admin/users/unban': ('admin_controller', 'unban_user'),
         'admin/users/set-role': ('admin_controller', 'set_user_role')

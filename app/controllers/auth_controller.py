@@ -20,10 +20,13 @@ def login(request):
 
     user = User.get_by_username(username)
     if user and check_password_hash(user.password, password):
+        if user.role_id == 4:
+            return base.error_response("Account has been banned", 403)
+
         session['user_id'] = user.id
         return base.success_response(user.to_dict(), message="Login successful")
-    else:
-        return base.error_response("Invlid credentials")
+
+    return base.error_response("Invalid credentials")
 
 def register(request):
     data = base.get_json()

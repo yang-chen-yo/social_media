@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Account Management</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet"/>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+  <div class="max-w-5xl mx-auto py-8 px-4">
+    <div class="bg-white shadow-md rounded-lg overflow-hidden">
+      <div class="px-6 py-4 border-b">
+        <h1 class="text-2xl font-semibold text-gray-800">Account Management</h1>
+      </div>
+      <div class="p-6 overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-2 text-left text-gray-600 uppercase text-xs">ID</th>
+              <th class="px-4 py-2 text-left text-gray-600 uppercase text-xs">Username</th>
+              <th class="px-4 py-2 text-left text-gray-600 uppercase text-xs">Email</th>
+              <th class="px-4 py-2 text-left text-gray-600 uppercase text-xs">Role</th>
+              <th class="px-4 py-2 text-left text-gray-600 uppercase text-xs">Created</th>
+              <th class="px-4 py-2 text-left text-gray-600 uppercase text-xs">Action</th>
+            </tr>
+          </thead>
+          <tbody id="user-table-body" class="bg-white divide-y divide-gray-200">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const roleMap = {
+      1: 'admin',
+      2: 'regular',
+      3: 'moderator',
+      4: 'banned'
+    };
+
+    async function loadUsers() {
+      const res = await fetch('/api/admin/users/list');
+      const { message: users } = await res.json();
+      const tbody = document.getElementById('user-table-body');
+      tbody.innerHTML = '';
+
+      users.forEach(user => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50 transition-colors';
+
+        tr.innerHTML = `
+          <td class="px-4 py-3">${user.id}</td>
+          <td class="px-4 py-3">${user.username}</td>
+          <td class="px-4 py-3">${user.email}</td>
+          <td class="px-4 py-3">${roleMap[user.role_id] || 'unknown'}</td>
+          <td class="px-4 py-3">${user.created_at}</td>
+          <td class="px-4 py-3">
+            ${user.role_id === 4 
+              ? `<button data-id="${user.id}" class="unban-btn inline-flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
+                   <i class="bi bi-person-check-fill"></i><span>Unban</span>
+                 </button>`
+              : `<button data-id="${user.id}" class="ban-btn inline-flex items-center gap-1 px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                   <i class="bi bi-person-x-fill"></i><span>Ban</span>
+                 </button>`
+            }
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.querySelectorAll('.ban-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.dataset.id;
+          if (confirm('確定要封鎖這位使用者嗎？')) {
+            await fetch(`/api/admin/users/ban`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: id })
+            });
+            loadUsers();
+          }
+        };
+      });
+
+      document.querySelectorAll('.unban-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.dataset.id;
+          if (confirm('確定要解除封鎖這位使用者嗎？')) {
+            await fetch(`/api/admin/users/unban`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: id })
+            });
+            loadUsers();
+          }
+        };
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', loadUsers);
+  </script>
+</body>
+</html>

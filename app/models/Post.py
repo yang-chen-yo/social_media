@@ -103,6 +103,31 @@ class Post(BaseModel):
         db.session.commit()
         return post
     
+    def update_with_images(self, new_content, new_images):
+        # 1. 更新文字與 tag
+        self.update_content(new_content)
+
+        # 2. 刪除舊有圖片（DB 與檔案都可選）  
+        for pi in list(self.images):
+            try:
+                # 如果要刪掉檔案：
+                os.remove(os.path.join(os.getenv('UPLOAD_FOLDER', 'static/images/'), pi.image_path))
+            except OSError:
+                pass
+            db.session.delete(pi)
+        db.session.flush()
+
+        # 3. 處理新上傳的圖片
+        upload_folder = os.getenv('UPLOAD_FOLDER', 'static/images/')
+        for img in new_images:
+            if img and img.filename:
+                fn = secure_filename(img.filename)
+                img.save(os.path.join(upload_folder, fn))
+                db.session.add(PostImage(post_id=self.id, image_path=fn))
+
+        # 4. 最後 commit
+        db.session.commit()
+    
     def update_content(self, new_content):
         self.content = new_content
 
@@ -135,6 +160,6 @@ class Post(BaseModel):
         post_map = {post.id: post for post in Post.query.filter(Post.id.in_(sorted_ids)).all()}
         return [post_map[pid] for pid in sorted_ids if pid in post_map]
 
-def soft_delete(self):
-    self.is_hidden = True
-    db.session.commit()
+    def soft_delete(self):
+        self.is_hidden = True
+        db.session.commit()

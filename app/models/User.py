@@ -8,6 +8,8 @@ class User(BaseModel):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    updated_at = db.Column(db.DateTime, default=db.func.current_timestamp(), onupdate=db.func.current_timestamp())
     
     blocking = db.relationship(
         'Block',
@@ -52,3 +54,13 @@ class User(BaseModel):
 
     def has_any_role(self, *role_names) -> bool:
         return self.role and self.role.role_name in role_names
+    
+    def to_safe_dict(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "role_id": self.role_id,
+            "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            "updated_at": self.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
+        }

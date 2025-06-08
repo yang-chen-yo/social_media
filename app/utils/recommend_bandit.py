@@ -160,7 +160,7 @@ class TagAwareBandit:
 
             # ✅ 若已看過則打折
             if pid in viewed_post_ids:
-                score *= 0.5
+                score *= 0.3
 
             return score
 

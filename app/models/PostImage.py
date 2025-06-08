@@ -1,3 +1,4 @@
+#models/PostImage
 from app.models.model import db, BaseModel
 
 class PostImage(BaseModel):
