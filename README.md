@@ -44,39 +44,74 @@ sHrf4x)Rp4MqPF7T
 
 
 🧠 增強式學習思想（Reinforcement Learning Intuition）
-推薦系統等價於一個「多臂機器賭博機（Multi-Armed Bandit）」問題：
+推薦系統等價於一個 互動偏好 80 % ＋ 隨機探索 20 % 「多臂機器賭博機（Multi-Armed Bandit）」問題：
 
-略的 4 大構成（對應 RL 架構）
+類比增強學習的 4 大元素
 元件	你系統中的實作
-🟦 狀態 (state)	使用者的近期互動紀錄組成狀態向量：top_tags, last_active
-🟩 行動 (action)	推薦一篇貼文（post_id）作為推薦決策
-🟨 獎勵 (reward)	使用者對該貼文的實際行為：view(+0.1)、like(+1.0)...等
-🟥 策略 (policy)	combined_score() 分數函數 → 排序後推薦 top-k 貼文
+🟦 狀態 (State)	使用者最近互動紀錄構成狀態向量：
+• top_tags（7 天內偏好主題）
+• recent_view_tags（近 1 天看過主題）
+• last_active_minutes（使用者活躍度）
+🟩 行動 (Action)	推薦某一篇貼文的 post_id（一次回傳 k 篇）
+🟨 獎勵 (Reward)	使用者實際行為：
+• view +0.1
+• like +1.0
+• comment +1.5
+• share +2.0（並加入時間衰減）
+🟥 策略 (Policy)	combined_score()：分數函數
+• 結合 post_rewards, tag_rewards, bonus
+• 排序後推薦前 k 篇貼文
 
- 演算法核心：TagAwareBandit
-一種模仿多臂賭博機（Multi-Armed Bandit）策略的簡化推薦方法：
-🔁 你的推薦策略的工作流程（策略學習角度）
-獲得狀態：
-從 Action 表中讀取使用者最近互動，提取 top_tags 當作偏好狀態
+🔁 TagAwareBandit：推薦流程（策略學習角度）
+🟦 1. 獲得狀態：建構使用者偏好
+從 Action 表中分析：
 
-決策（策略）：
-根據 combined_score() 函式，計算每篇貼文的分數：
+近 7 天常互動的 tag → 建立 top_tags
 
-互動 reward（like/comment/share/view）
+近 1 天看過的貼文 tag → 建立 recent_view_tags
 
-個人化 tag reward（user_tag_rewards）
+上次活躍時間 → last_active_minutes
 
-狀態命中加分（偏好 tag 命中）
+這些組成當前的 使用者狀態 state。
 
-曾看過的貼文分數打折
+🧮 2. 決策（策略計分）：combined_score()
+每篇候選貼文會計算一個分數，組成策略 π(s, a)：
 
-採樣行動（推薦貼文）：
-回傳排序前 k 篇貼文 → 顯示給使用者
+🟨 互動 reward：post_rewards（like/comment 整體品質）
 
-等待回饋（獎勵）：
-使用者是否對推薦內容有互動（like/view/share 等）→ 儲存在 actions 表
+🟩 個人 tag reward：user_tag_rewards、fallback 全體 tag_rewards
 
-系統更新策略：
-在下一次 update() 時會重新計算貼文 / 標籤的 reward 分數 → 策略即時更新
+🎯 偏好命中加分：
+
+命中 top_tags：+0.2
+
+命中 recent_view_tags：+0.15
+
+❌ 已看過貼文降分：× 0.4
+
+最後：
+score = (1 - tag_weight) * post_reward + tag_weight * tag_reward + bonus
+
+🎲 3. 採樣行動：推薦貼文
+將所有貼文依分數排序後：
+
+前 80% → 主推薦（偏好）
+
+後 20% → 從未看過貼文隨機抽樣（探索）
+
+系統回傳一組推薦貼文 ID，並顯示給使用者。
+
+📥 4. 等待回饋：獲取 Reward
+使用者對推薦貼文的行為會記錄在 Action 表中（包括 view / like / comment 等）。
+這些行為即為 實際 reward。
+
+🔁 5. 策略更新：實時學習
+在下一次執行 update(session) 時：
+
+重新統計最近 30 天互動
+
+將 reward 加總、加權、時間衰減
+
+更新 post_rewards, tag_rewards, user_tag_rewards
 
 前端滑動到貼文區塊時打 API 至少停留 N 秒才算 view

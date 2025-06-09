@@ -49,6 +49,7 @@ def get_user_info(request):
 
     role_name = user.role.role_name if user.role else 'unknown'
     return base.success_response({
+        'id': user.id,
         'username': user.username,
         'role': role_name
     })

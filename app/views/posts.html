@@ -110,6 +110,7 @@
     let followingList = [];
     let editingPostId = null;
     let likedPostIds = [];
+    let meId = null;
 
     let meRole = null;   // ← 加這行
 
@@ -118,10 +119,11 @@
     try {
       const res = await fetch('/api/users/meInfo');
       const { message } = await res.json();
+      meId = message.id;
       meRole = message.role;
       if (meRole === 'admin') {
         const dropdown = document.getElementById('user-dropdown');
-        const adminLink = document.createElement('a');
+        const adminLink = document.createElement('a');  
         adminLink.href = '/api/page/users';           // 改成你真正的管理頁面路徑
         adminLink.textContent = 'Account Management';
         adminLink.className = 'text-sm';
@@ -358,7 +360,7 @@
             fetch(`/api/actions/view/${postId}`, { method: 'POST' }).catch(err =>
               console.error('View API error:', err)
             );
-          }, 10000); // 10 秒
+          }, 5000); // 10 秒
         });
         card.addEventListener('mouseleave', () => {
           if (timer) {
@@ -388,17 +390,56 @@
         if (!sec.classList.contains('hidden')) {
           const rc = await fetch(`/api/posts/comments/${id}`);
           const { data } = await rc.json();
-          const parents = data.filter(c => c.parent_id === null);
-          parents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          const parents = data.filter(c => c.parent_id === null).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    
           list.innerHTML = parents.map(c => {
             const children = data.filter(x => x.parent_id === c.id);
-            const p = `<div class="comment-item"><strong>${c.username}</strong>: ${c.comment}<br><small class="text-gray-500">${new Date(c.created_at).toLocaleString()}</small><br><span class="reply-link" data-id="${c.id}" data-post="${id}">回覆</span></div>`;
-            const ch = children.map(ch => `<div class="comment-item comment-reply"><strong>${ch.username}</strong>: ${ch.comment}<br><small class="text-gray-500">${new Date(ch.created_at).toLocaleString()}</small><br><span class="reply-link" data-id="${ch.id}" data-post="${id}">回覆</span></div>`).join('');
+    
+            const editable = parseInt(c.user_id) === parseInt(meId)
+              ? `<div class="mt-1">
+                  <i class="bi bi-pencil-square text-indigo-600 cursor-pointer edit-comment me-2"
+                     title="編輯"
+                     data-id="${c.id}"
+                     data-comment="${c.comment}"></i>
+                  <i class="bi bi-trash text-danger cursor-pointer delete-comment"
+                     title="刪除"
+                     data-id="${c.id}"></i>
+                 </div>`
+              : '';
+    
+            const p = `<div class="comment-item">
+              <strong>${c.username}</strong>: ${c.comment}
+              <br><small class="text-gray-500">${new Date(c.created_at).toLocaleString()}</small>
+              <br><span class="reply-link" data-id="${c.id}" data-post="${id}">回覆</span>
+              ${editable}
+            </div>`;
+    
+            const ch = children.map(ch => {
+              const editableCh = parseInt(ch.user_id) === parseInt(meId)
+                ? `<div class="mt-1">
+                    <i class="bi bi-pencil-square text-indigo-600 cursor-pointer edit-comment me-2"
+                       title="編輯"
+                       data-id="${ch.id}"
+                       data-comment="${ch.comment}"></i>
+                    <i class="bi bi-trash text-danger cursor-pointer delete-comment"
+                       title="刪除"
+                       data-id="${ch.id}"></i>
+                   </div>`
+                : '';
+    
+              return `<div class="comment-item comment-reply">
+                <strong>${ch.username}</strong>: ${ch.comment}
+                <br><small class="text-gray-500">${new Date(ch.created_at).toLocaleString()}</small>
+                <br><span class="reply-link" data-id="${ch.id}" data-post="${id}">回覆</span>
+                ${editableCh}
+              </div>`;
+            }).join('');
+    
             return p + ch;
           }).join('') || '<p class="text-gray-400">沒有留言</p>';
         }
       });
-  
+      
       document.querySelectorAll('.follow-btn').forEach(btn => {
         btn.onclick = async () => {
           const uid = btn.dataset.id;
@@ -492,26 +533,45 @@
         const inp = wrap.querySelector('.comment-input');
         const com = inp.value.trim();
         if (!com) return;
-        const rn = await fetch(`/api/posts/comment/new/${pid}`, {
+    
+        const editId = inp.dataset.editId;
+        const url = editId ? `/api/posts/comment/update/${editId}` : `/api/posts/comment/new/${pid}`;
+        const payload = { comment: com };
+        if (!editId) payload.parent_id = replyTo || null;
+    
+        const rn = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ comment: com, parent_id: replyTo || null })
+          body: JSON.stringify(payload)
         });
+    
         if (rn.ok) {
           inp.value = '';
+          inp.placeholder = 'Write a comment...';
+          delete inp.dataset.editId;
           replyTo = null;
           document.querySelector(`.comment-btn[data-id="${pid}"]`).click();
           setTimeout(() => document.querySelector(`.comment-btn[data-id="${pid}"]`).click(), 100);
         }
-      });
+      });      
   
-      document.addEventListener('click', e => {
-        if (e.target.matches('.reply-link')) {
-          e.preventDefault();
-          replyTo = e.target.dataset.id;
-          const inp = document.querySelector(`#comments-${e.target.dataset.post} .comment-input`);
-          inp.placeholder = `Reply to #${replyTo}`;
-          inp.focus();
+      document.addEventListener('click', async e => {
+        if (e.target.matches('.edit-comment')) {
+          const commentId = e.target.dataset.id;
+          const commentText = e.target.dataset.comment;
+          const input = e.target.closest('.comment-section').querySelector('.comment-input');
+          replyTo = null;
+          input.value = commentText;
+          input.placeholder = `Editing comment #${commentId}`;
+          input.dataset.editId = commentId;
+          input.focus();
+        }
+        if (e.target.matches('.delete-comment')) {
+          const commentId = e.target.dataset.id;
+          if (!confirm('確定要刪除這則留言嗎？')) return;
+          const res = await fetch(`/api/posts/comment/delete/${commentId}`, { method: 'POST' });
+          if (res.ok) fetchPosts();
+          else alert('刪除失敗');
         }
       });
     }

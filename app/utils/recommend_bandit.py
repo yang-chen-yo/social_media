@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+import re, random
 from collections import defaultdict
 from statistics import mean
 from typing import Dict, List, Set
@@ -10,9 +10,9 @@ from app.models.model import db
 from app.models.Action import Action
 from app.models.Tag import Tag
 from app.models.PostTag import PostTag
-from app.models.Block import Block
 from app.models.Comment import Comment
 from app.models.Follow import Follow
+from app.models.Like import Like
 
 REWARD_MAPPING: Dict[str, float] = {
     "view": 0.1,
@@ -44,146 +44,164 @@ class TagAwareBandit:
         self._user_tag_rewards.clear()
 
         post_tags: Dict[int, List[str]] = defaultdict(list)
-        for post_id, tag_name in (
-            session.query(PostTag.post_id, Tag.tag_name)
-            .join(Tag, PostTag.tag_id == Tag.id)
-            .all()
-        ):
-            post_tags[post_id].append(tag_name)
+        for pid, tname in (session.query(PostTag.post_id, Tag.tag_name)
+                           .join(Tag, PostTag.tag_id == Tag.id).all()):
+            post_tags[pid].append(tname)
 
         cutoff = datetime.utcnow() - timedelta(days=30)
-
-        for user_id, post_id, action_type, ts in (
-            session.query(Action.user_id, Action.post_id, Action.action_type, Action.timestamp)
-            .filter(Action.timestamp > cutoff)
-            .all()
-        ):
-            if post_id is None:
+        for uid, pid, act, ts in (session.query(Action.user_id, Action.post_id,
+                                                Action.action_type, Action.timestamp)
+                                  .filter(Action.timestamp > cutoff).all()):
+            if pid is None:
                 continue
+            w = REWARD_MAPPING.get(act, 0.0) * 0.95 ** ((datetime.utcnow() - ts).days)
+            self._post_rewards[pid].append(w)
+            for t in post_tags.get(pid, []):
+                self._tag_rewards[t].append(w)
+                self._user_tag_rewards[uid][t].append(w)
 
-            reward = REWARD_MAPPING.get(action_type, 0.0)
-            age_days = (datetime.utcnow() - ts).days
-            decay = 0.95 ** age_days
-            weighted_reward = reward * decay
-
-            self._post_rewards[post_id].append(weighted_reward)
-
-            for tag_name in post_tags.get(post_id, []):
-                self._tag_rewards[tag_name].append(weighted_reward)
-                self._user_tag_rewards[user_id][tag_name].append(weighted_reward)
-
-    def recommend_all(self, user, session, k=15) -> List[int]:
+    def recommend_all(self, user, session, k: int = 30,
+                      explore_ratio: float = 0.2) -> List[int]:
         from app.models.Post import Post
 
         cutoff = datetime.utcnow() - timedelta(days=30)
-        viewed_post_ids = {
+
+        viewed_post_ids = {pid for pid, in session.query(Action.post_id)
+                           .filter(Action.user_id == user.id,
+                                   Action.action_type == 'view',
+                                   Action.timestamp > cutoff)}
+
+        # ✅ 互動過的貼文：like / comment / share
+        liked_post_ids = {
+            pid for pid, in session.query(Like.post_id)
+            .filter(Like.user_id == user.id,
+                    Like.created_at > cutoff)
+        }
+
+        commented_post_ids = {
+            pid for pid, in session.query(Comment.post_id)
+            .filter(Comment.user_id == user.id,
+                    Comment.created_at > cutoff)
+        }
+
+        shared_post_ids = {
             pid for pid, in session.query(Action.post_id)
-            .filter(
-                Action.user_id == user.id,
-                Action.action_type == 'view',
-                Action.timestamp > cutoff
-            )
+            .filter(Action.user_id == user.id,
+                    Action.action_type == 'share',
+                    Action.timestamp > cutoff)
         }
 
-        state = self._get_user_state(user, session)
+        interacted_post_ids = liked_post_ids | commented_post_ids | shared_post_ids
 
-        blocked_users = {
-            b.blocked_id for b in user.blocking.all()
-        } | {
-            b.blocker_id for b in user.blocked_by.all()
-        }
+        blocked_users = {b.blocked_id for b in user.blocking.all()} \
+                        | {b.blocker_id for b in user.blocked_by.all()}
 
-        candidate_rows = (
-            session.query(Post.id, Post.user_id)
-            .filter(
-                ~Post.user_id.in_(blocked_users),
-                Post.user_id != user.id
-            )
-            .all()
-        )
+        candidate_rows = session.query(Post.id, Post.user_id, Post.created_at).filter(
+            ~Post.user_id.in_(blocked_users),
+            Post.user_id != user.id
+        ).all()
         if not candidate_rows:
             return []
 
-        candidate_ids = [pid for pid, _ in candidate_rows]
+        candidate_ids = [pid for pid, _, _ in candidate_rows]
+        post_created_map = {pid: created_at for pid, _, created_at in candidate_rows}
 
-        followee_ids = {
-            f.followee_id
-            for f in session.query(Follow).filter(Follow.follower_id == user.id).all()
-        }
-        followee_post_ids = [pid for pid, uid in candidate_rows if uid in followee_ids]
-        commented_ids = {
-            pid for pid, in session.query(Comment.post_id).filter(Comment.user_id.in_(followee_ids)).all()
-        }
-        priority_post_ids = set(followee_post_ids) | commented_ids
+        post_tags: Dict[int, List[str]] = defaultdict(list)
+        for pid, tname in (session.query(PostTag.post_id, Tag.tag_name)
+                           .join(Tag, PostTag.tag_id == Tag.id)
+                           .filter(PostTag.post_id.in_(candidate_ids)).all()):
+            post_tags[pid].append(tname)
 
-        post_to_tags: Dict[int, List[str]] = defaultdict(list)
-        for pid, tag_name in (
-            session.query(PostTag.post_id, Tag.tag_name)
-            .join(Tag, PostTag.tag_id == Tag.id)
-            .filter(PostTag.post_id.in_(candidate_ids))
-            .all()
-        ):
-            post_to_tags[pid].append(tag_name)
+        state = self._get_user_state(user, session)
+        top_tags = set(state["top_tags"])
+
+        recent_view_tags = set()
+        view_rows = (session.query(Tag.tag_name)
+                     .join(PostTag, PostTag.tag_id == Tag.id)
+                     .join(Action, Action.post_id == PostTag.post_id)
+                     .filter(Action.user_id == user.id,
+                             Action.action_type == 'view',
+                             Action.timestamp > datetime.utcnow() - timedelta(days=1))
+                     .all())
+        for (t,) in view_rows:
+            recent_view_tags.add(t)
 
         def avg_post_reward(pid: int) -> float:
             r = self._post_rewards.get(pid)
             return sum(r) / len(r) if r else 0.0
 
-        def avg_tag_reward(tags: List[str], user_id: int) -> float:
-            user_tags = self._user_tag_rewards.get(user_id, {})
-
-            vals = [
-                sum(user_tags[t]) / len(user_tags[t])
-                for t in tags if t in user_tags and len(user_tags[t]) > 1
-            ]
+        def avg_tag_reward(tags: List[str]) -> float:
+            if not tags:
+                return 0.0
+            vals = [sum(self._user_tag_rewards[user.id][t]) / len(self._user_tag_rewards[user.id][t])
+                    for t in tags if t in self._user_tag_rewards[user.id]]
             if not vals:
-                vals = [
-                    sum(self._tag_rewards[t]) / len(self._tag_rewards[t])
-                    for t in tags if t in self._tag_rewards and len(self._tag_rewards[t]) > 1
-                ]
+                vals = [sum(self._tag_rewards[t]) / len(self._tag_rewards[t])
+                        for t in tags if t in self._tag_rewards]
             return mean(vals) if vals else 0.0
 
         def combined_score(pid: int) -> float:
+            # --- 基礎分數（保持你原本的計算） ---
             p_score = avg_post_reward(pid)
-            t_score = avg_tag_reward(post_to_tags.get(pid, []), user.id)
-            bonus = 0.5 if pid in priority_post_ids else 0.0
-
-            if pid in self._post_rewards:
-                bonus += 0.3
-
-            # ✅ 狀態轉移：使用者偏好 tag 被命中，加分
-            post_tags = set(post_to_tags.get(pid, []))
-            if post_tags & set(state["top_tags"]):
+            t_score = avg_tag_reward(post_tags.get(pid, []))
+            bonus = 0.0
+            if set(post_tags[pid]) & top_tags:
                 bonus += 0.2
+            if set(post_tags[pid]) & recent_view_tags:
+                bonus += 0.15
+
+            # recency bonus（72 小時線性衰減，最高 +0.1）
+            post_time = post_created_map[pid]
+            age_hours = (datetime.utcnow() - post_time).total_seconds() / 3600
+            bonus += max(0.0, (72 - age_hours) / 72) * 0.1
 
             score = (1 - self.tag_weight) * p_score + self.tag_weight * t_score + bonus
 
-            # ✅ 若已看過則打折
-            if pid in viewed_post_ids:
-                score *= 0.3
+            # --- α 係數（階梯式） --------------------------------
+            if pid in viewed_post_ids:               # 只有看過的才考慮折扣
+                has_like    = pid in liked_post_ids
+                has_comment = pid in commented_post_ids
 
+                if has_like and has_comment:         # view + like + comment
+                    α = 0.8                        # 幾乎不打折
+                elif has_like:                       # view + like
+                    α = 0.4                         # 輕微折扣
+                else:                                # 只有 view
+                    α = 0.3                         # 打 5 折
+                score *= α                           # 套用係數
+
+            # 沒 view ⇒ α = 1.0（不打折）
             return score
+        
+        k_main = int(k * (1 - explore_ratio))
+        sorted_pref = sorted(candidate_ids, key=combined_score, reverse=True)
 
-        sorted_ids = sorted(candidate_ids, key=combined_score, reverse=True)
-        return sorted_ids[:k]
+        main_ids = []
+        for pid in sorted_pref:
+            main_ids.append(pid)
+            if len(main_ids) == k_main:
+                break
+
+        explore_pool = [pid for pid in candidate_ids
+                        if pid not in viewed_post_ids and pid not in main_ids]
+        random.shuffle(explore_pool)
+        explore_ids = explore_pool[: k - len(main_ids)]
+
+        return (main_ids + explore_ids)[:k]
 
     def _get_user_state(self, user, session) -> Dict:
         cutoff = datetime.utcnow() - timedelta(days=7)
-
-        recent = session.query(
-            Action.action_type,
-            Action.timestamp,
-            Tag.tag_name
-        ).join(PostTag, PostTag.post_id == Action.post_id) \
-         .join(Tag, PostTag.tag_id == Tag.id) \
-         .filter(Action.user_id == user.id, Action.timestamp > cutoff).all()
+        recent = (session.query(Action.action_type, Action.timestamp, Tag.tag_name)
+                  .join(PostTag, PostTag.post_id == Action.post_id)
+                  .join(Tag, PostTag.tag_id == Tag.id)
+                  .filter(Action.user_id == user.id, Action.timestamp > cutoff)
+                  .all())
 
         tag_counter = defaultdict(int)
-        for action_type, ts, tag in recent:
+        for _, _, tag in recent:
             tag_counter[tag] += 1
 
         last_active = max([ts for _, ts, _ in recent], default=datetime.utcnow())
-
         return {
             "top_tags": sorted(tag_counter, key=tag_counter.get, reverse=True)[:5],
             "last_active_minutes": (datetime.utcnow() - last_active).seconds // 60
