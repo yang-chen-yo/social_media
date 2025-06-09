@@ -370,6 +370,32 @@
         });
       });
     }
+
+    function renderComments(comments, parentId = null, depth = 0, postId = null) {
+        return comments
+          .filter(c => c.parent_id === parentId)
+          .map(c => {
+            // ——— 可編輯／刪除 icon（依舊保持）
+            const editable = Number(c.user_id) === Number(meId) ? `
+              <div class="mt-1">
+                <i class="bi bi-pencil-square text-indigo-600 cursor-pointer edit-comment me-2"
+                   title="編輯" data-id="${c.id}" data-comment="${c.comment}"></i>
+                <i class="bi bi-trash text-danger cursor-pointer delete-comment"
+                   title="刪除" data-id="${c.id}"></i>
+              </div>` : '';
+      
+            // ——— 單一留言 + 遞迴子留言
+            return `
+              <div class="comment-item${depth ? ' comment-reply' : ''}"
+                   style="margin-left:${depth * 1.25}rem">
+                <strong>${c.username}</strong>: ${c.comment}
+                <br><small class="text-gray-500">${new Date(c.created_at).toLocaleString()}</small>
+                <br><span class="reply-link" data-id="${c.id}" data-post="${postId}">回覆</span>
+                ${editable}
+                ${renderComments(comments, c.id, depth + 1, postId)}
+              </div>`;
+          }).join('');
+      }
   
     function bindEvents() {
       document.querySelectorAll('.like-btn').forEach(btn => btn.onclick = async () => {
@@ -391,52 +417,7 @@
           const rc = await fetch(`/api/posts/comments/${id}`);
           const { data } = await rc.json();
           const parents = data.filter(c => c.parent_id === null).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    
-          list.innerHTML = parents.map(c => {
-            const children = data.filter(x => x.parent_id === c.id);
-    
-            const editable = parseInt(c.user_id) === parseInt(meId)
-              ? `<div class="mt-1">
-                  <i class="bi bi-pencil-square text-indigo-600 cursor-pointer edit-comment me-2"
-                     title="編輯"
-                     data-id="${c.id}"
-                     data-comment="${c.comment}"></i>
-                  <i class="bi bi-trash text-danger cursor-pointer delete-comment"
-                     title="刪除"
-                     data-id="${c.id}"></i>
-                 </div>`
-              : '';
-    
-            const p = `<div class="comment-item">
-              <strong>${c.username}</strong>: ${c.comment}
-              <br><small class="text-gray-500">${new Date(c.created_at).toLocaleString()}</small>
-              <br><span class="reply-link" data-id="${c.id}" data-post="${id}">回覆</span>
-              ${editable}
-            </div>`;
-    
-            const ch = children.map(ch => {
-              const editableCh = parseInt(ch.user_id) === parseInt(meId)
-                ? `<div class="mt-1">
-                    <i class="bi bi-pencil-square text-indigo-600 cursor-pointer edit-comment me-2"
-                       title="編輯"
-                       data-id="${ch.id}"
-                       data-comment="${ch.comment}"></i>
-                    <i class="bi bi-trash text-danger cursor-pointer delete-comment"
-                       title="刪除"
-                       data-id="${ch.id}"></i>
-                   </div>`
-                : '';
-    
-              return `<div class="comment-item comment-reply">
-                <strong>${ch.username}</strong>: ${ch.comment}
-                <br><small class="text-gray-500">${new Date(ch.created_at).toLocaleString()}</small>
-                <br><span class="reply-link" data-id="${ch.id}" data-post="${id}">回覆</span>
-                ${editableCh}
-              </div>`;
-            }).join('');
-    
-            return p + ch;
-          }).join('') || '<p class="text-gray-400">沒有留言</p>';
+          list.innerHTML = renderComments(data, null, 0, id) || '<p class="text-gray-400">沒有留言</p>';
         }
       });
       
@@ -556,6 +537,14 @@
       });      
   
       document.addEventListener('click', async e => {
+        if (e.target.matches('.reply-link')) {
+          e.preventDefault();
+          replyTo = e.target.dataset.id;
+          const inp = document.querySelector(`#comments-${e.target.dataset.post} .comment-input`);
+          inp.placeholder = `Reply to #${replyTo}`;
+          inp.focus();
+        }
+      
         if (e.target.matches('.edit-comment')) {
           const commentId = e.target.dataset.id;
           const commentText = e.target.dataset.comment;
@@ -566,6 +555,7 @@
           input.dataset.editId = commentId;
           input.focus();
         }
+      
         if (e.target.matches('.delete-comment')) {
           const commentId = e.target.dataset.id;
           if (!confirm('確定要刪除這則留言嗎？')) return;
@@ -573,7 +563,7 @@
           if (res.ok) fetchPosts();
           else alert('刪除失敗');
         }
-      });
+      });      
     }
   
     document.addEventListener('DOMContentLoaded', async () => {
