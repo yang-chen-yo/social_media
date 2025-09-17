@@ -95,21 +95,6 @@ score = (1 - tag_weight) * post_reward + tag_weight * tag_reward + bonus
 
 
 前端滑動到貼文區塊時打 API 至少停留 5 秒才算 view
-
-graph TD
-    A[使用者前端介面] -->|HTTP 請求| B[Flask 後端伺服器]
-
-    B --> C[註冊 / 登入 / CRUD API]
-    B --> D[推薦系統模組 (Multi-Armed Bandit)]
-    B --> E[使用者權限管理]
-    B --> F[圖像上傳處理 static images]
-
-    C --> G[(MySQL 資料庫 RDS)]
-    D --> G
-    E --> G
-
-    subgraph AWS 雲端架構
-        B
         G
     end
 
